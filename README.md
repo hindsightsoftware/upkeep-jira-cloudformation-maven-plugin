@@ -122,7 +122,7 @@ The second goal: **stop** will stop the cloud formation and will delete all reso
                                 <ExternalSubnets>subnet-b15306ea,subnet-167ceb2a</ExternalSubnets>
                                 <InternalSubnets>subnet-b15306ea,subnet-167ceb2a</InternalSubnets>
                                 <AssociatePublicIpAddress>true</AssociatePublicIpAddress>
-                                <DBMasterUserPassword>cloudformationexample</DBMasterUserPassword>
+                                <DBMasterUserPassword>rdsmasterpassword</DBMasterUserPassword>
                                 <DBPassword>rdsmasterpassword</DBPassword>
                                 <KeyName>jira-keypair</KeyName>
                                 <CustomDnsName/>

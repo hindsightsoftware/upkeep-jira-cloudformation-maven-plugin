@@ -3,12 +3,18 @@ package com.hindsightsoftware.upkeep;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 
+import org.apache.maven.plugin.logging.Log;
+import org.apache.maven.plugin.logging.SystemStreamLog;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 
 import java.io.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Mojo( name = "start", defaultPhase = LifecyclePhase.PRE_INTEGRATION_TEST )
 public class Start extends AbstractMojo {
@@ -25,14 +31,77 @@ public class Start extends AbstractMojo {
     @Parameter( property = "jira.cloudformation.region", defaultValue = "us-west-2" )
     private String regionCode;
 
-    @Parameter( property = "jira.cloudformation.stack.name", defaultValue = "CloudFormation-Stack" )
+    @Parameter( property = "jira.cloudformation.stack.name", defaultValue = "JIRA-Data-Center" )
     private String stackName;
 
     @Parameter( property = "jira.cloudformation.credentials", defaultValue = "aws.properties" )
     private String credentialsFilePath;
 
+    @Parameter( property = "jira.cloudformation.onfailure", defaultValue = "DELETE" )
+    private String onFailure;
+
+    @Parameter( property = "jira.cloudformation.load.balancer.id", defaultValue = "LoadBalancer" )
+    private String loadBalancerLogicalId;
+
+    @Parameter( property = "jira.cloudformation.base.url.id", defaultValue = "JIRAURL" )
+    private String baseUrlOutputsId;
+
+    @Parameter( property = "jira.cloudformation.load.balancer", defaultValue = "" )
+    private String loadBalancerPhysicalId;
+
+    @Parameter( property = "jira.cloudformation.base.url", defaultValue = "" )
+    private String baseUrl;
+
+    @Parameter( property = "jira.cloudformation.base.url.path", defaultValue = "${project.build.testOutputDirectory}/baseurl" )
+    private String baseUrlPath;
+
+    @Parameter( property = "jira.cloudformation.rds.id", defaultValue = "DB" )
+    private String databaseId;
+
+    @Parameter( property = "jira.cloudformation.rds", defaultValue = "" )
+    private String databasePhysicalId;
+
+    @Parameter( property = "jira.cloudformation.rds.password", defaultValue = "" )
+    private String rdsPassword;
+
     @Parameter
     private Map<String, String> parameters;
+
+    @Parameter
+    private String[] exports;
+
+    @Parameter( property = "jira.cloudformation.ssh.private.key", defaultValue = "" )
+    private File sshPrivateKeyFile;
+
+    @Parameter( property = "jira.cloudformation.s3.aws.credentails", defaultValue = "" )
+    private File s3AwsCredentials;
+
+    @Parameter( property = "jira.cloudformation.s3.aws.config", defaultValue = "" )
+    private File s3AwsConfig;
+
+    @Parameter( property = "jira.cloudformation.s3.restore.enabled", defaultValue = "true" )
+    private boolean s3RestoreEnabled;
+
+    @Parameter( property = "jira.cloudformation.s3.restore.bucket", defaultValue = "" )
+    private String s3BucketName;
+
+    @Parameter( property = "jira.cloudformation.s3.restore.psql", defaultValue = "" )
+    private String s3JiraRestorePsql;
+
+    @Parameter( property = "jira.cloudformation.s3.restore.indexes", defaultValue = "" )
+    private String s3JiraRestoreIndexes;
+
+    @Parameter( property = "jira.cloudformation.max.wait.jira", defaultValue = "300")
+    private Integer maxJiraHttpWait;
+
+    @Parameter( property = "jira.cloudformation.max.wait.load", defaultValue = "300")
+    private Integer maxLoadBalancerWait;
+
+    private Log log;
+
+    public void setLog(Log log){
+        this.log = new SystemStreamLog();
+    }
 
     public void execute() throws MojoExecutionException {
         if(skip)return;
@@ -41,26 +110,208 @@ public class Start extends AbstractMojo {
             throw new MojoExecutionException("Missing cloudformation.template parameter!");
         }
 
-        System.out.println("Writing configuration file to: " + confPath);
-        writeBaseUrl(confPath, "http://d541e879.ngrok.io");
+        AwsCloudFormation cloudFormationClient = new AwsCloudFormation(log, credentialsFilePath);
+        AwsDatabase databaseClient = new AwsDatabase(log, credentialsFilePath);
+        AwsInstance instanceClient = new AwsInstance(log, credentialsFilePath);
+        AwsLoadBalancer loadBalancerClient = new AwsLoadBalancer(log, credentialsFilePath);
 
-        CloudFormation cloudFormation = new CloudFormation(credentialsFilePath);
+        Map<String, String> outputs = new HashMap<String, String>();
+        Map<String, String> resources = new HashMap<String, String>();
 
-        if(cloudFormation.build(stackName, templateUrl, regionCode, parameters)){
-            System.out.println("Cloud formation successfully created!");
+        // Build JIRA stack and save all outputs and resources generated
+        if(cloudFormationClient.build(stackName, templateUrl, regionCode, onFailure, parameters, outputs, resources)){
+            log.info("Cloud formation successfully created!");
         } else {
             throw new MojoExecutionException("Failed to create cloud formation!");
         }
+
+        // Write outputs to configuration file based on a filter provided by user
+        if(exports != null && exports.length > 0) {
+            final List<String> exportsList = Arrays.asList(exports);
+            log.info("Writing configuration file to: " + confPath);
+            writeOutputs(confPath, outputs.entrySet().stream().filter(p -> exportsList.contains(p.getKey()))
+                    .collect(Collectors.toMap(p -> p.getKey(), p -> (p.getValue() != null ? p.getValue() : "")))
+            );
+        } else {
+            log.error("Configuration file specified: " + confPath + " but no export keys were defined! Exporting everything...");
+            writeOutputs(confPath, outputs);
+        }
+
+        // Find load balancer physical ID if none has been supplied
+        if(isEmpty(loadBalancerPhysicalId)) {
+            if (!resources.containsKey(loadBalancerLogicalId)) {
+                throw new MojoExecutionException("Unable to find Load Balancer logical ID: " + loadBalancerLogicalId + " in resources generated from template");
+            }
+            loadBalancerPhysicalId = resources.get(loadBalancerLogicalId);
+        }
+
+        // Find base URL of JIRA if none has been supplied
+        if(isEmpty(baseUrl)) {
+            if((baseUrl = loadBalancerClient.getDns(loadBalancerPhysicalId)) == null){
+                throw new MojoExecutionException("Failed to get load balancer DNS");
+            }
+        }
+
+        // Find database endpoint if none has been supplied
+        if(isEmpty(databasePhysicalId)){
+            if (!resources.containsKey(databaseId)) {
+                throw new MojoExecutionException("Unable to find database endpoint: " + databaseId + " in resources generated from template");
+            }
+            databasePhysicalId = resources.get(databaseId);
+        }
+
+        // Wait for all JIRA Nodes
+        if(!loadBalancerClient.waitForInstances(loadBalancerPhysicalId)){
+            throw new MojoExecutionException("Something went wrong while waiting for instances");
+        }
+
+        // Restore Postgres SQL and indexes
+        if(s3RestoreEnabled){
+            List<String> instancesDns = loadBalancerClient.getInstanceIDs(loadBalancerPhysicalId).stream()
+                    .map(id -> instanceClient.getDns(id)).collect(Collectors.toList());
+            restoreFromPsqlBackup(instancesDns, databaseClient.getEndpoint(databasePhysicalId));
+        }
+        else {
+            log.info("No backup restore mechanism specified... skipping...");
+        }
+
+        // Wait for health check
+        log.info("Waiting to health check of all JIRA instances. This is needed in order for the load balancer to wake up!");
+        if(!loadBalancerClient.waitForHealthCheck(loadBalancerPhysicalId, maxLoadBalancerWait, 15000)){
+            throw new MojoExecutionException("Health Check failed!");
+        }
+
+        // Wait for JIRA to return http code between 200 - 499
+        log.info("Waiting for JIRA on load balancer URL!");
+        if(!JiraRestoreUtils.waitForUrlToBeAlive(log, baseUrl, maxJiraHttpWait)){
+            throw new MojoExecutionException("Something went wrong while waiting for JIRA");
+        }
+
+        if(!isEmpty(baseUrlPath)){
+            writeBaseUrl(baseUrlPath, baseUrl);
+        }
     }
 
-    private void writeBaseUrl(String path, String url) throws MojoExecutionException {
+    private void restoreFromPsqlBackup(List<String> ec2PublicIpAddresses, String rdsInstanceEndpoint) throws MojoExecutionException {
+        log.info("Restoring JIRA for: " + ec2PublicIpAddresses.size() + " EC2 instance nodes");
+
+        log.info("Stopping all instances of JIRA in order to restore the database...");
+        for(String address : ec2PublicIpAddresses) {
+            // Open ssh connection
+            SecuredShellClient ssh = getSsh(address);
+            try {
+                if (!JiraRestoreUtils.stopJira(ssh)) {
+                    throw new MojoExecutionException("Failed to stop JIRA in instance: " + address);
+                }
+            } finally {
+                ssh.close();
+            }
+        }
+
+        // Sanity check. Make sure the database connections were terminated.
+        // 10 seconds should be enough.
+        try {
+            Thread.sleep(10000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        boolean psqlRestored = false;
+
+        for(String address : ec2PublicIpAddresses) {
+            // Open ssh connection
+            SecuredShellClient ssh = getSsh(address);
+
+            // Restore JIRA from Postgres SQL
+            try {
+                // upload aws credentials needed to access S3 bucket
+                if (!JiraRestoreUtils.uploadCredentials(ssh, s3AwsCredentials.getAbsolutePath(), s3AwsConfig.getAbsolutePath())) {
+                    throw new MojoExecutionException("Failed to upload aws credentials for accessing S3 bucket!");
+                }
+
+                // Restoring Postgres SQL must be done only once.
+                // However, indexes need to be restored on all instances.
+                if(!psqlRestored) {
+                    // download the psql file
+                    if (!JiraRestoreUtils.getPsqlFromBucket(ssh, s3BucketName, s3JiraRestorePsql)) {
+                        throw new MojoExecutionException("Failed to get Postgres SQL backup from S3 bucket!");
+                    }
+
+                    // restore Postgres SQL
+                    if (!JiraRestoreUtils.restoreFromPsql(ssh, rdsInstanceEndpoint, rdsPassword, s3JiraRestorePsql)) {
+                        throw new MojoExecutionException("Failed restore Postgres SQL backup!");
+                    }
+
+                    psqlRestored = true;
+                }
+
+                // download the indexes file and restore it
+                if (!JiraRestoreUtils.getIndexesFromBucket(ssh, s3BucketName, s3JiraRestoreIndexes)) {
+                    throw new MojoExecutionException("Failed to get indexes backup from S3 bucket!");
+                }
+
+                // start JIRA again
+                if (!JiraRestoreUtils.startJira(ssh)) {
+                    // Try starting it second time
+                    if(!JiraRestoreUtils.startJira(ssh)) {
+                        throw new MojoExecutionException("Failed to start JIRA in instance: " + address);
+                    }
+                }
+            } finally {
+                ssh.close();
+            }
+        }
+
+        // Wait for all JIRAs to be active
+        for(String address : ec2PublicIpAddresses) {
+            // Open ssh connection
+            SecuredShellClient ssh = getSsh(address);
+            try {
+                log.info("Waiting for JIRA instance: " + address);
+                if (!JiraRestoreUtils.waitForJiraToBeAlive(ssh, log, "http://" + address + ":8080/", maxJiraHttpWait)) {
+                    throw new MojoExecutionException("Timeout reached!");
+                }
+            } finally {
+                ssh.close();
+            }
+        }
+    }
+
+    private SecuredShellClient getSsh(String host) throws MojoExecutionException{
+        log.info("Connecting to " + host + "...");
+        try {
+            return new SecuredShellClient(log, host, "ec2-user", sshPrivateKeyFile);
+        } catch (IOException e) {
+            throw new MojoExecutionException("SSH error: " + e.getMessage());
+        }
+    }
+
+    private void writeOutputs(String path, Map<String, String> params) throws MojoExecutionException {
         try {
             BufferedWriter output = new BufferedWriter(new FileWriter(path));
-            output.write("baseUrl=\"" + url + "\"\n");
+            for(Map.Entry<String, String> param : params.entrySet()){
+                output.write(param.getKey() + "=\"" + param.getValue() + "\"\n");
+            }
             output.close();
 
         } catch (Exception e){
             throw new MojoExecutionException("Error while writing config file: " + e.getMessage());
         }
+    }
+
+    private void writeBaseUrl(String path, String url) throws MojoExecutionException{
+        try {
+            BufferedWriter output = new BufferedWriter(new FileWriter(path));
+            output.write(url);
+            output.close();
+
+        } catch (Exception e){
+            throw new MojoExecutionException("Error while writing config file: " + e.getMessage());
+        }
+    }
+
+    // Sanity check
+    private boolean isEmpty(String str){
+        return str == null || str.length() == 0;
     }
 }

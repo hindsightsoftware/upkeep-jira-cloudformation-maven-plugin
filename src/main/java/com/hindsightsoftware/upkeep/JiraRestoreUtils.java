@@ -66,14 +66,6 @@ public class JiraRestoreUtils {
             }
         }
 
-        /*List<String> commands = Arrays.asList(
-                //"PGPASSWORD=\'" + password + "\' dropdb -h " + endpoint + " --if-exists -p 5432 -U postgres jira",
-
-                //"PGPASSWORD=\'" + password + "\' createdb -h " + endpoint + " -p 5432 -U postgres jira",
-
-                "PGPASSWORD=\'" + password + "\' pg_restore -n public -i -h " + endpoint + " -p 5432 -U postgres -d jira \"" + psqlFileName + "\""
-        );*/
-
         // Restore data
         return ssh.execute("PGPASSWORD=\'" + password + "\' pg_restore -n public -i -h " + endpoint + " -p 5432 -U postgres -d jira \"" + psqlFileName + "\"") == 0;
     }

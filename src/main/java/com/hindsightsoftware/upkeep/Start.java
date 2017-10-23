@@ -1,5 +1,6 @@
 package com.hindsightsoftware.upkeep;
 
+import com.jcraft.jsch.JSchException;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 
@@ -199,21 +200,9 @@ public class Start extends AbstractMojo {
         for(String address : ec2PublicIpAddresses) {
             // Open ssh connection
             SecuredShellClient ssh = getSsh(address);
-            try {
-                if (!JiraRestoreUtils.stopJira(ssh)) {
-                    throw new MojoExecutionException("Failed to stop JIRA in instance: " + address);
-                }
-            } finally {
-                ssh.close();
+            if (!JiraRestoreUtils.stopJira(ssh)) {
+                throw new MojoExecutionException("Failed to stop JIRA in instance: " + address);
             }
-        }
-
-        // Sanity check. Make sure the database connections were terminated.
-        // 10 seconds should be enough.
-        try {
-            Thread.sleep(10000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
         }
 
         boolean psqlRestored = false;
@@ -223,42 +212,39 @@ public class Start extends AbstractMojo {
             SecuredShellClient ssh = getSsh(address);
 
             // Restore JIRA from Postgres SQL
-            try {
-                // upload aws credentials needed to access S3 bucket
-                if (!JiraRestoreUtils.uploadCredentials(ssh, s3AwsCredentials.getAbsolutePath(), s3AwsConfig.getAbsolutePath())) {
-                    throw new MojoExecutionException("Failed to upload aws credentials for accessing S3 bucket!");
+
+            // upload aws credentials needed to access S3 bucket
+            if (!JiraRestoreUtils.uploadCredentials(ssh, s3AwsCredentials.getAbsolutePath(), s3AwsConfig.getAbsolutePath())) {
+                throw new MojoExecutionException("Failed to upload aws credentials for accessing S3 bucket!");
+            }
+
+            // Restoring Postgres SQL must be done only once.
+            // However, indexes need to be restored on all instances.
+            if(!psqlRestored) {
+                // download the psql file
+                if (!JiraRestoreUtils.getPsqlFromBucket(ssh, s3BucketName, s3JiraRestorePsql)) {
+                    throw new MojoExecutionException("Failed to get Postgres SQL backup from S3 bucket!");
                 }
 
-                // Restoring Postgres SQL must be done only once.
-                // However, indexes need to be restored on all instances.
-                if(!psqlRestored) {
-                    // download the psql file
-                    if (!JiraRestoreUtils.getPsqlFromBucket(ssh, s3BucketName, s3JiraRestorePsql)) {
-                        throw new MojoExecutionException("Failed to get Postgres SQL backup from S3 bucket!");
-                    }
-
-                    // restore Postgres SQL
-                    if (!JiraRestoreUtils.restoreFromPsql(ssh, rdsInstanceEndpoint, rdsPassword, s3JiraRestorePsql)) {
-                        throw new MojoExecutionException("Failed restore Postgres SQL backup!");
-                    }
-
-                    psqlRestored = true;
+                // restore Postgres SQL
+                if (!JiraRestoreUtils.restoreFromPsql(log, ssh, rdsInstanceEndpoint, rdsPassword, s3JiraRestorePsql)) {
+                    throw new MojoExecutionException("Failed restore Postgres SQL backup!");
                 }
 
-                // download the indexes file and restore it
-                if (!JiraRestoreUtils.getIndexesFromBucket(ssh, s3BucketName, s3JiraRestoreIndexes)) {
-                    throw new MojoExecutionException("Failed to get indexes backup from S3 bucket!");
-                }
+                psqlRestored = true;
+            }
 
-                // start JIRA again
-                if (!JiraRestoreUtils.startJira(ssh)) {
-                    // Try starting it second time
-                    if(!JiraRestoreUtils.startJira(ssh)) {
-                        throw new MojoExecutionException("Failed to start JIRA in instance: " + address);
-                    }
+            // download the indexes file and restore it
+            if (!JiraRestoreUtils.getIndexesFromBucket(ssh, s3BucketName, s3JiraRestoreIndexes)) {
+                throw new MojoExecutionException("Failed to get indexes backup from S3 bucket!");
+            }
+
+            // start JIRA again
+            if (!JiraRestoreUtils.startJira(ssh)) {
+                // Try starting it second time
+                if(!JiraRestoreUtils.startJira(ssh)) {
+                    throw new MojoExecutionException("Failed to start JIRA in instance: " + address);
                 }
-            } finally {
-                ssh.close();
             }
         }
 
@@ -266,13 +252,9 @@ public class Start extends AbstractMojo {
         for(String address : ec2PublicIpAddresses) {
             // Open ssh connection
             SecuredShellClient ssh = getSsh(address);
-            try {
-                log.info("Waiting for JIRA instance: " + address);
-                if (!JiraRestoreUtils.waitForJiraToBeAlive(ssh, log, "http://" + address + ":8080/", maxJiraHttpWait)) {
-                    throw new MojoExecutionException("Timeout reached!");
-                }
-            } finally {
-                ssh.close();
+            log.info("Waiting for JIRA instance: " + address);
+            if (!JiraRestoreUtils.waitForJiraToBeAlive(ssh, log, "http://" + address + ":8080/", maxJiraHttpWait)) {
+                throw new MojoExecutionException("Timeout reached!");
             }
         }
     }
@@ -281,7 +263,7 @@ public class Start extends AbstractMojo {
         log.info("Connecting to " + host + "...");
         try {
             return new SecuredShellClient(log, host, "ec2-user", sshPrivateKeyFile);
-        } catch (IOException e) {
+        } catch (JSchException e) {
             throw new MojoExecutionException("SSH error: " + e.getMessage());
         }
     }

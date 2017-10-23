@@ -136,7 +136,7 @@ public class AwsLoadBalancer {
                         log.error("JIRA Node is terminated!");
                     }
                     if (state.equals("running") && status.equals("ok")) {
-                        log.info("JIRA Node is running and ready for connection");
+                        log.info("JIRA Node instance: \"" + instanceId + "\" is running and ready for connection");
                         break;
                     } else {
                         log.info("JIRA Node instance: \"" + instanceId + "\" status: \"" + status + "\" waiting...");

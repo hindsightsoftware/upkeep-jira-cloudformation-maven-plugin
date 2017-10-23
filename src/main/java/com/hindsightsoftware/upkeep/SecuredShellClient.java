@@ -3,11 +3,8 @@ package com.hindsightsoftware.upkeep;
 import java.io.*;
 import java.util.List;
 
-import net.schmizz.sshj.DefaultConfig;
-import net.schmizz.sshj.SSHClient;
-import net.schmizz.sshj.connection.channel.direct.Session;
-import net.schmizz.sshj.connection.channel.direct.Session.Command;
-import net.schmizz.sshj.transport.verification.PromiscuousVerifier;
+
+import com.jcraft.jsch.*;
 import org.apache.maven.plugin.logging.Log;
 
 public class SecuredShellClient {
@@ -21,30 +18,57 @@ public class SecuredShellClient {
     }
 
     private final Log log;
-    private SSHClient ssh;
+    private final JSch jsch;
+    private final String host;
+    private final String user;
+    private final int port = 22;
 
-    public SecuredShellClient(Log log, String address, String sshuser, File keypairFilePath) throws IOException {
+    public SecuredShellClient(Log log, String host, String user, File keypairFilePath) throws JSchException {
         this.log = log;
-        this.ssh = beginClient(address, sshuser, keypairFilePath.getAbsolutePath());
+        this.jsch = new JSch();
+        this.host = host;
+        this.user = user;
+        this.jsch.addIdentity(keypairFilePath.getAbsolutePath());
     }
 
     public boolean uploadFile(List<FilePair> files) {
+        log.info("Uploading: " + files.size() + " files...");
         try {
-            Session session = ssh.startSession();
-            session.allocateDefaultPTY();
+            Session session = jsch.getSession(user, host, port);
+            java.util.Properties config = new java.util.Properties();
+            config.put("StrictHostKeyChecking", "no");
+            session.setConfig(config);
+            session.connect();
 
             try {
                 for(FilePair pair : files){
                     log.info("Uploading: " + pair.src + " -> " + pair.dst);
-                    ssh.newSCPFileTransfer().upload(pair.src, pair.dst);
+                    Channel channel = session.openChannel("sftp");
+                    channel.connect();
+                    ChannelSftp channelSftp = (ChannelSftp) channel;
+                    channelSftp.cd(pair.dst);
+
+                    File f1 = new File(pair.src);
+                    channelSftp.put(new FileInputStream(f1), f1.getName(), ChannelSftp.OVERWRITE);
+
+                    channelSftp.disconnect();
                 }
             } finally {
-                session.close();
+                session.disconnect();
             }
 
             return true;
-        } catch (IOException e){
+        } catch (FileNotFoundException e){
+            log.error("Error reading source file: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        } catch (SftpException e){
             log.error("Error while uploading files: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        } catch (JSchException e){
+            log.error("Error while connecting: " + e.getMessage());
+            e.printStackTrace();
             return false;
         }
     }
@@ -59,6 +83,64 @@ public class SecuredShellClient {
 
     public int execute(String command){
         try {
+            Session session = jsch.getSession(user, host, port);
+            java.util.Properties config = new java.util.Properties();
+            config.put("StrictHostKeyChecking", "no");
+            session.setConfig(config);
+            session.connect();
+
+            try {
+                log.info("SSH exec: " + command);
+                ChannelExec channelExec = (ChannelExec)session.openChannel("exec");
+                channelExec.setCommand(command);
+                channelExec.setInputStream(null);
+                channelExec.setErrStream(System.err);
+
+                InputStream stdout = channelExec.getInputStream();
+                InputStream stderr = channelExec.getErrStream();
+                channelExec.connect();
+
+                try {
+                    InputStreamReader stdoutReader = new InputStreamReader(stdout);
+                    BufferedReader stdoutBufferedReader = new BufferedReader(stdoutReader);
+                    InputStreamReader stderrReader = new InputStreamReader(stderr);
+                    BufferedReader stderrBufferedReader = new BufferedReader(stderrReader);
+
+                    String line;
+
+                    while ((line = stderrBufferedReader.readLine()) != null) {
+                        log.info(line);
+                    }
+
+                    while ((line = stdoutBufferedReader.readLine()) != null) {
+                        log.info(line);
+                    }
+
+                    stderrBufferedReader.close();
+                    stderrReader.close();
+                    stdoutBufferedReader.close();
+                    stdoutReader.close();
+
+                    int status = channelExec.getExitStatus();
+                    log.info("Command returned status: " + status);
+                    return status;
+                } finally {
+                    channelExec.disconnect();
+                }
+            } finally {
+                session.disconnect();
+            }
+
+        } catch (JSchException e){
+            log.error("Error while connecting: " + e.getMessage());
+            e.printStackTrace();
+            return -1;
+        } catch (IOException e){
+            log.error("Error while reading input stream: " + e.getMessage());
+            e.printStackTrace();
+            return -1;
+        }
+        /*try {
             Session session = ssh.startSession();
             session.allocateDefaultPTY();
 
@@ -118,23 +200,6 @@ public class SecuredShellClient {
         } catch (IOException e){
             log.error(e);
             return -1;
-        }
-    }
-
-    public void close(){ // noexcept
-        try {
-            ssh.disconnect();
-        } catch (IOException e){
-            log.error(e);
-        }
-    }
-
-    private SSHClient beginClient(String address, String sshuser, String keypairFilePath) throws IOException {
-        SSHClient ssh = new SSHClient(new DefaultConfig());
-        ssh.addHostKeyVerifier(new PromiscuousVerifier());
-        ssh.connect(address);
-        ssh.authPublickey(sshuser, keypairFilePath);
-        ssh.useCompression();
-        return ssh;
+        }*/
     }
 }

@@ -13,7 +13,7 @@ public class JiraRestoreUtils {
                 new SecuredShellClient.FilePair(s3AwsConfig, ".aws/")
         );
 
-        return ssh.execute("mkdir -p ~/.aws") == 0 && ssh.uploadFile(files);
+        return ssh.execute("mkdir -p .aws") == 0 && ssh.uploadFile(files);
     }
 
     public static boolean getPsqlFromBucket(SecuredShellClient ssh, String bucketName, String psqlFileName){
@@ -38,7 +38,6 @@ public class JiraRestoreUtils {
                 //"sudo rm -f /opt/atlassian/jira/work/catalina.pid",
 
                 // Start
-                //"sudo su nohup /opt/atlassian/jira/bin/catalina.sh start",
                 "sudo su -c \"exec env USE_NOHUP=true /opt/atlassian/jira/bin/startup.sh > /dev/null\"; sleep 10",
 
                 // Check if PID is alive
@@ -47,16 +46,36 @@ public class JiraRestoreUtils {
         return ssh.execute(commands) == 0;
     }
 
-    public static boolean restoreFromPsql(SecuredShellClient ssh, String endpoint, String password, String psqlFileName){
-        List<String> commands = Arrays.asList(
-                "PGPASSWORD=\'" + password + "\' dropdb -h " + endpoint + " --if-exists -p 5432 -U postgres jira",
+    public static boolean restoreFromPsql(Log log, SecuredShellClient ssh, String endpoint, String password, String psqlFileName){
+        if(ssh.execute("PGPASSWORD=\'" + password + "\' createdb -h " + endpoint + " -p 5432 -U postgres jira") != 0){
+            log.info("Database has been already created... Terminating all connections...");
 
-                "PGPASSWORD=\'" + password + "\' createdb -h " + endpoint + " -p 5432 -U postgres jira",
+            List<String> commands = Arrays.asList(
+                    // Terminate all connections
+                    "PGPASSWORD=\'" + password + "\' psql -h " + endpoint + " -p 5432 -U postgres postgres -c \"SELECT pg_terminate_backend(pg_stat_activity.pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();\"",
+
+                    // Drop the database
+                    "PGPASSWORD=\'" + password + "\' dropdb -h " + endpoint + " --if-exists -p 5432 -U postgres jira",
+
+                    // Create new one
+                    "PGPASSWORD=\'" + password + "\' createdb -h " + endpoint + " -p 5432 -U postgres jira"
+            );
+
+            if(ssh.execute(commands) != 0){
+                return false;
+            }
+        }
+
+        /*List<String> commands = Arrays.asList(
+                //"PGPASSWORD=\'" + password + "\' dropdb -h " + endpoint + " --if-exists -p 5432 -U postgres jira",
+
+                //"PGPASSWORD=\'" + password + "\' createdb -h " + endpoint + " -p 5432 -U postgres jira",
 
                 "PGPASSWORD=\'" + password + "\' pg_restore -n public -i -h " + endpoint + " -p 5432 -U postgres -d jira \"" + psqlFileName + "\""
-        );
+        );*/
 
-        return ssh.execute(commands) == 0;
+        // Restore data
+        return ssh.execute("PGPASSWORD=\'" + password + "\' pg_restore -n public -i -h " + endpoint + " -p 5432 -U postgres -d jira \"" + psqlFileName + "\"") == 0;
     }
 
     public static boolean getIndexesFromBucket(SecuredShellClient ssh, String bucketName, String indexesFileName){

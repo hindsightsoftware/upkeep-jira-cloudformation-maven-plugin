@@ -100,32 +100,30 @@ public class SecuredShellClient {
                 InputStream stderr = channelExec.getErrStream();
                 channelExec.connect();
 
-                try {
-                    InputStreamReader stdoutReader = new InputStreamReader(stdout);
-                    BufferedReader stdoutBufferedReader = new BufferedReader(stdoutReader);
-                    InputStreamReader stderrReader = new InputStreamReader(stderr);
-                    BufferedReader stderrBufferedReader = new BufferedReader(stderrReader);
-
-                    String line;
-
-                    while ((line = stderrBufferedReader.readLine()) != null) {
-                        log.info(line);
+                byte[] tmp=new byte[1024];
+                while(true){
+                    while(stdout.available()>0){
+                        int i = stdout.read(tmp, 0, 1024);
+                        if(i < 0 )break;
+                        System.out.print(new String(tmp, 0, i));
                     }
-
-                    while ((line = stdoutBufferedReader.readLine()) != null) {
-                        log.info(line);
+                    while(stderr.available()>0){
+                        int i = stderr.read(tmp, 0, 1024);
+                        if(i < 0 )break;
+                        System.out.print(new String(tmp, 0, i));
                     }
-
-                    stderrBufferedReader.close();
-                    stderrReader.close();
-                    stdoutBufferedReader.close();
-                    stdoutReader.close();
-
-                    int status = channelExec.getExitStatus();
-                    log.info("Command returned status: " + status);
-                    return status;
-                } finally {
-                    channelExec.disconnect();
+                    if(channelExec.isClosed()){
+                        if(stdout.available() > 0 || stderr.available() > 0) continue;
+                        int status = channelExec.getExitStatus();
+                        log.info("Command returned status: " + status);
+                        channelExec.disconnect();
+                        return status;
+                    }
+                    try{
+                        Thread.sleep(250);
+                    } catch(Exception ee){
+                        log.error(ee);
+                    }
                 }
             } finally {
                 session.disconnect();

@@ -52,7 +52,7 @@ public class JiraRestoreUtils {
 
             List<String> commands = Arrays.asList(
                     // Terminate all connections
-                    "PGPASSWORD=\'" + password + "\' psql -h " + endpoint + " -p 5432 -U postgres postgres -c \"SELECT pg_terminate_backend(pg_stat_activity.pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();\"",
+                    "PGPASSWORD=\'" + password + "\' psql -h " + endpoint + " -p 5432 -U postgres jira -c \"SELECT pg_terminate_backend(pg_stat_activity.pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid();\"",
 
                     // Drop the database
                     "PGPASSWORD=\'" + password + "\' dropdb -h " + endpoint + " --if-exists -p 5432 -U postgres jira",
@@ -67,7 +67,7 @@ public class JiraRestoreUtils {
         }
 
         // Restore data
-        return ssh.execute("PGPASSWORD=\'" + password + "\' pg_restore -n public -i -h " + endpoint + " -p 5432 -U postgres -d jira \"" + psqlFileName + "\"") == 0;
+        return ssh.execute("PGPASSWORD=\'" + password + "\' pg_restore -v -n public -i -h " + endpoint + " -p 5432 -U postgres -d jira \"" + psqlFileName + "\"") == 0;
     }
 
     public static boolean getIndexesFromBucket(SecuredShellClient ssh, String bucketName, String indexesFileName){
@@ -76,7 +76,7 @@ public class JiraRestoreUtils {
                 "aws s3 cp s3://" + bucketName + "/" + indexesFileName + " .",
 
                 // Copy to destination
-                "sudo tar -xzvf " + indexesFileName + " -C /var/atlassian/application-data/jira/caches/indexes > /dev/null",
+                "sudo tar -xzvf " + indexesFileName + " -C /var/atlassian/application-data/jira/caches/indexes",
 
                 // Make jira as owner of the extracted indexes
                 "sudo chown -R jira /var/atlassian/application-data/jira/caches/indexes/"

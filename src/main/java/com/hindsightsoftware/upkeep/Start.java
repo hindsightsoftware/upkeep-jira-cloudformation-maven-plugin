@@ -56,6 +56,15 @@ public class Start extends AbstractMojo {
     @Parameter( property = "jira.cloudformation.base.url.path", defaultValue = "${project.build.testOutputDirectory}/baseurl" )
     private String baseUrlPath;
 
+    @Parameter( property = "jira.cloudformation.ec2.path", defaultValue = "${project.build.testOutputDirectory}/ec2_nodes" )
+    private String ec2NodesPath;
+
+    @Parameter
+    private List<File> uploads;
+
+    @Parameter
+    private List<String> commands;
+
     @Parameter( property = "jira.cloudformation.rds.id", defaultValue = "DB" )
     private String databaseId;
 
@@ -97,6 +106,9 @@ public class Start extends AbstractMojo {
 
     @Parameter( property = "jira.cloudformation.max.wait.load", defaultValue = "300")
     private Integer maxLoadBalancerWait;
+
+    @Parameter( property = "jira.cloudformation.setenv", defaultValue = "" )
+    private File setenvFile;
 
     private Log log;
 
@@ -166,14 +178,43 @@ public class Start extends AbstractMojo {
             throw new MojoExecutionException("Something went wrong while waiting for instances");
         }
 
+        // Get all instances DNS points
+        List<String> instancesDns = loadBalancerClient.getInstanceIDs(loadBalancerPhysicalId).stream()
+                .map(id -> instanceClient.getDns(id)).collect(Collectors.toList());
+
+        if(!isEmpty(ec2NodesPath)){
+            writeInstanceUrls(ec2NodesPath, instancesDns);
+        }
+
         // Restore Postgres SQL and indexes
         if(s3RestoreEnabled){
-            List<String> instancesDns = loadBalancerClient.getInstanceIDs(loadBalancerPhysicalId).stream()
-                    .map(id -> instanceClient.getDns(id)).collect(Collectors.toList());
             restoreFromPsqlBackup(instancesDns, databaseClient.getEndpoint(databasePhysicalId));
         }
         else {
             log.info("No backup restore mechanism specified... skipping...");
+        }
+
+        // Anything extra to upload?
+        if((uploads != null && uploads.size() > 0) || (commands != null && commands.size() > 0)) {
+            for(String address : instancesDns) {
+                // Open ssh connection
+                SecuredShellClient ssh = getSsh(address);
+
+                if(uploads != null && uploads.size() > 0) {
+                    List<SecuredShellClient.FilePair> files = uploads.stream().map(file ->
+                            new SecuredShellClient.FilePair(file.getAbsolutePath(), "/home/ec2-user")).collect(Collectors.toList());
+                    if (!ssh.uploadFile(files)) {
+                        throw new MojoExecutionException("Failed to upload extra files to: " + address);
+                    }
+                }
+
+                // Run extra commands
+                for(String command : commands){
+                    if(ssh.execute(command) != 0){
+                        throw new MojoExecutionException("Something went wrong while executing command on instance: " + address);
+                    }
+                }
+            }
         }
 
         // Wait for health check
@@ -221,6 +262,8 @@ public class Start extends AbstractMojo {
             // Restoring Postgres SQL must be done only once.
             // However, indexes need to be restored on all instances.
             if(!psqlRestored) {
+                psqlRestored = true;
+
                 // download the psql file
                 if (!JiraRestoreUtils.getPsqlFromBucket(ssh, s3BucketName, s3JiraRestorePsql)) {
                     throw new MojoExecutionException("Failed to get Postgres SQL backup from S3 bucket!");
@@ -230,13 +273,18 @@ public class Start extends AbstractMojo {
                 if (!JiraRestoreUtils.restoreFromPsql(log, ssh, rdsInstanceEndpoint, rdsPassword, s3JiraRestorePsql)) {
                     throw new MojoExecutionException("Failed restore Postgres SQL backup!");
                 }
-
-                psqlRestored = true;
             }
 
             // download the indexes file and restore it
             if (!JiraRestoreUtils.getIndexesFromBucket(ssh, s3BucketName, s3JiraRestoreIndexes)) {
                 throw new MojoExecutionException("Failed to get indexes backup from S3 bucket!");
+            }
+
+            // Copy and paste setenv file
+            if (setenvFile != null && setenvFile.exists() && setenvFile.isFile()){
+                if(!JiraRestoreUtils.uploadSetenv(ssh, setenvFile.getAbsolutePath())){
+                    throw new MojoExecutionException("Failed to upload setenv.sh file!");
+                }
             }
 
             // start JIRA again
@@ -289,6 +337,20 @@ public class Start extends AbstractMojo {
 
         } catch (Exception e){
             throw new MojoExecutionException("Error while writing config file: " + e.getMessage());
+        }
+    }
+
+    private void writeInstanceUrls(String path, List<String> instances) throws MojoExecutionException{
+        try {
+            BufferedWriter output = new BufferedWriter(new FileWriter(path));
+            for(String address : instances){
+                output.write(address);
+                output.write("\n");
+            }
+            output.close();
+
+        } catch (Exception e){
+            throw new MojoExecutionException("Error while writing ec2 instances file: " + e.getMessage());
         }
     }
 

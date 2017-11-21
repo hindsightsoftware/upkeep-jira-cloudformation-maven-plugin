@@ -46,6 +46,18 @@ public class JiraRestoreUtils {
         return ssh.execute(commands) == 0;
     }
 
+    public static boolean uploadSetenv(SecuredShellClient ssh, String setenvPath){
+        List<SecuredShellClient.FilePair> files = Arrays.asList(
+                new SecuredShellClient.FilePair(setenvPath, "/home/ec2-user/setenv.sh")
+        );
+
+        if(!ssh.uploadFile(files)){
+            return false;
+        }
+
+        return ssh.execute("sudo mv /home/ec2-user/setenv.sh /opt/atlassian/jira/bin/setenv.sh") == 0;
+    }
+
     public static boolean restoreFromPsql(Log log, SecuredShellClient ssh, String endpoint, String password, String psqlFileName){
         if(ssh.execute("PGPASSWORD=\'" + password + "\' createdb -h " + endpoint + " -p 5432 -U postgres jira") != 0){
             log.info("Database has been already created... Terminating all connections...");
@@ -67,7 +79,7 @@ public class JiraRestoreUtils {
         }
 
         // Restore data
-        return ssh.execute("PGPASSWORD=\'" + password + "\' pg_restore -v -n public -i -h " + endpoint + " -p 5432 -U postgres -d jira \"" + psqlFileName + "\"") == 0;
+        return ssh.execute("PGPASSWORD=\'" + password + "\' pg_restore -j 4 -v -n public -i -h " + endpoint + " -p 5432 -U postgres -d jira \"" + psqlFileName + "\"") == 0;
     }
 
     public static boolean getIndexesFromBucket(SecuredShellClient ssh, String bucketName, String indexesFileName){

@@ -108,7 +108,8 @@ public class AwsCloudFormation {
             log.info("Stack creation completed, the stack " + stackName + " completed with " + waitForCompletion(cf, stackName));
 
             // Show all the stacks for this account along with the resources for each stack
-            for (Stack stack : cf.describeStacks(new DescribeStacksRequest()).getStacks()) {
+            Stack stack = cf.describeStacks(new DescribeStacksRequest()).getStacks().get(0);
+            if(stack != null) {
                 log.info("Stack : " + stack.getStackName() + " [" + stack.getStackStatus().toString() + "]");
 
                 DescribeStackResourcesRequest stackResourceRequest = new DescribeStackResourcesRequest();

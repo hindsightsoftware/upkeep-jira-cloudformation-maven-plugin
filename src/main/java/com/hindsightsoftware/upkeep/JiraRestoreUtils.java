@@ -48,7 +48,7 @@ public class JiraRestoreUtils {
 
     public static boolean uploadSetenv(SecuredShellClient ssh, String setenvPath){
         List<SecuredShellClient.FilePair> files = Arrays.asList(
-                new SecuredShellClient.FilePair(setenvPath, "/home/ec2-user/setenv.sh")
+                new SecuredShellClient.FilePair(setenvPath, "/home/ec2-user/")
         );
 
         if(!ssh.uploadFile(files)){

@@ -2,27 +2,25 @@ package com.hindsightsoftware.upkeep;
 
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.AmazonServiceException;
-import com.amazonaws.auth.*;
-import com.amazonaws.auth.profile.ProfileCredentialsProvider;
-import com.amazonaws.services.rds.AmazonRDSClient;
+import com.amazonaws.services.rds.AmazonRDS;
+import com.amazonaws.services.rds.AmazonRDSClientBuilder;
 import com.amazonaws.services.rds.model.DescribeDBInstancesRequest;
 import com.amazonaws.services.rds.model.DescribeDBInstancesResult;
+import com.amazonaws.auth.profile.ProfileCredentialsProvider;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import org.apache.maven.plugin.logging.Log;
 
 public class AwsDatabase {
-    private final AWSCredentialsProviderChain credentials;
     private final Log log;
-    private final AmazonRDSClient rds;
+    private final AmazonRDS rds;
 
-    public AwsDatabase(Log log, String credentailsFilePath){
+    public AwsDatabase(Log log){
         this.log = log;
-        this.credentials = new AWSCredentialsProviderChain(
-                new PropertiesFileCredentialsProvider(credentailsFilePath),
-                new EnvironmentVariableCredentialsProvider(),
-                new SystemPropertiesCredentialsProvider(),
-                new ProfileCredentialsProvider(),
-                new InstanceProfileCredentialsProvider());
-        this.rds = new AmazonRDSClient(this.credentials.getCredentials());
+        AmazonRDSClientBuilder builder = AmazonRDSClientBuilder.standard();
+        builder.withCredentials(
+                new AWSStaticCredentialsProvider(new ProfileCredentialsProvider("default").getCredentials()));
+        builder.setRegion("us-east-2");
+        this.rds = builder.build();
     }
 
     public String getEndpoint(String physicalId){

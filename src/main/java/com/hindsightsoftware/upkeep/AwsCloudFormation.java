@@ -18,14 +18,14 @@ package com.hindsightsoftware.upkeep;
 
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.AmazonServiceException;
-import com.amazonaws.auth.*;
-import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.amazonaws.regions.Region;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.cloudformation.AmazonCloudFormation;
-import com.amazonaws.services.cloudformation.AmazonCloudFormationClient;
+import com.amazonaws.services.cloudformation.AmazonCloudFormationClientBuilder;
 import com.amazonaws.services.cloudformation.model.*;
 import com.amazonaws.services.cloudformation.model.Stack;
+import com.amazonaws.auth.profile.ProfileCredentialsProvider;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import org.apache.maven.plugin.logging.Log;
 
 import java.util.*;
@@ -35,33 +35,21 @@ import java.util.*;
  * https://github.com/aws/aws-sdk-java/blob/master/src/samples/AwsCloudFormation/CloudFormationSample.java
  */
 public class AwsCloudFormation {
-    private final AWSCredentialsProviderChain credentials;
     private final Log log;
     private final AmazonCloudFormation cf;
 
-    public AwsCloudFormation(Log log, String credentailsFilePath){
+    public AwsCloudFormation(Log log){
         this.log = log;
-        this.credentials = new AWSCredentialsProviderChain(
-                new PropertiesFileCredentialsProvider(credentailsFilePath),
-                new EnvironmentVariableCredentialsProvider(),
-                new SystemPropertiesCredentialsProvider(),
-                new ProfileCredentialsProvider(),
-                new InstanceProfileCredentialsProvider());
-        this.cf = new AmazonCloudFormationClient(credentials);
+        AmazonCloudFormationClientBuilder builder = AmazonCloudFormationClientBuilder.standard();
+        builder.withCredentials(new AWSStaticCredentialsProvider(new ProfileCredentialsProvider("default").getCredentials()));
+        builder.setRegion("us-east-2");
+        this.cf = builder.build();
     }
 
-    public boolean build(String stackName, String templateUrl, String regionCode, String onFailure,
+    public boolean build(String stackName, String templateUrl, String onFailure,
                          Map<String, String> parameters, Map<String, String> outputs, Map<String, String> resources) {
 
-        try {
-            cf.setRegion(Region.getRegion(Regions.fromName(regionCode)));
-        } catch (IllegalArgumentException e){
-            log.error("Invalid region code: " + regionCode);
-            log.error("Expected single value from: " + Arrays.stream(Regions.values()).toString());
-            return false;
-        }
-
-        log.info("Creating a stack called: \"" + stackName + "\" in a region: \"" + regionCode + "\"");
+        log.info("Creating a stack called: \"" + stackName + "\"");
 
         try {
             // Check if stack has been previously created
@@ -78,10 +66,11 @@ public class AwsCloudFormation {
                 CreateStackRequest createRequest = new CreateStackRequest();
                 createRequest.setStackName(stackName);
                 createRequest.setTemplateURL(templateUrl);
+                createRequest.setCapabilities(Arrays.asList("CAPABILITY_IAM", "CAPABILITY_NAMED_IAM", "CAPABILITY_AUTO_EXPAND"));
+                
                 try {
                     createRequest.setOnFailure(OnFailure.fromValue(onFailure));
                 } catch (IllegalArgumentException e) {
-                    log.error("Invalid onfailure parameter: " + regionCode);
                     log.error("Expected single value from: " + Arrays.stream(OnFailure.values()).toString());
                     return false;
                 }
@@ -126,6 +115,8 @@ public class AwsCloudFormation {
                 }
             }
 
+            return true;
+
         } catch (AmazonServiceException ase){
             AwsUtils.printAmazonServiceException(log, ase);
             return false;
@@ -138,8 +129,6 @@ public class AwsCloudFormation {
             log.error("Error while Thread.sleep() " + iex.getMessage());
             return false;
         }
-
-        return true;
     }
 
     public boolean stop(String stackName){

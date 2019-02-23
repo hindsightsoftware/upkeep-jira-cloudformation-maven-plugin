@@ -23,20 +23,14 @@ public class Start extends AbstractMojo {
     @Parameter
     private boolean skip = false;
 
-    @Parameter( property = "jira.cloudformation.template.url", defaultValue = "https://aws-quickstart.s3.amazonaws.com/quickstart-atlassian-jira/templates/quickstart-jira-dc-with-vpc.template.yaml" )
+    @Parameter( property = "jira.cloudformation.template.url", defaultValue = "https://aws-quickstart.s3.amazonaws.com/quickstart-atlassian-jira/templates/quickstart-jira-dc.template.yaml" )
     private String templateUrl;
 
     @Parameter(property = "jira.cloudformation.conf.file", defaultValue = "${project.build.testOutputDirectory}/cloudformation.conf")
     private String confPath;
 
-    @Parameter( property = "jira.cloudformation.region", defaultValue = "us-west-2" )
-    private String regionCode;
-
     @Parameter( property = "jira.cloudformation.stack.name", defaultValue = "JIRA-Data-Center" )
     private String stackName;
-
-    @Parameter( property = "jira.cloudformation.credentials", defaultValue = "aws.properties" )
-    private String credentialsFilePath;
 
     @Parameter( property = "jira.cloudformation.onfailure", defaultValue = "DELETE" )
     private String onFailure;
@@ -123,16 +117,16 @@ public class Start extends AbstractMojo {
             throw new MojoExecutionException("Missing cloudformation.template parameter!");
         }
 
-        AwsCloudFormation cloudFormationClient = new AwsCloudFormation(log, credentialsFilePath);
-        AwsDatabase databaseClient = new AwsDatabase(log, credentialsFilePath);
-        AwsInstance instanceClient = new AwsInstance(log, credentialsFilePath);
-        AwsLoadBalancer loadBalancerClient = new AwsLoadBalancer(log, credentialsFilePath);
+        AwsCloudFormation cloudFormationClient = new AwsCloudFormation(log);
+        AwsDatabase databaseClient = new AwsDatabase(log);
+        AwsInstance instanceClient = new AwsInstance(log);
+        AwsLoadBalancer loadBalancerClient = new AwsLoadBalancer(log);
 
         Map<String, String> outputs = new HashMap<String, String>();
         Map<String, String> resources = new HashMap<String, String>();
 
         // Build JIRA stack and save all outputs and resources generated
-        if(cloudFormationClient.build(stackName, templateUrl, regionCode, onFailure, parameters, outputs, resources)){
+        if(cloudFormationClient.build(stackName, templateUrl, onFailure, parameters, outputs, resources)){
             log.info("Cloud formation successfully created!");
         } else {
             throw new MojoExecutionException("Failed to create cloud formation!");

@@ -16,9 +16,6 @@ public class Stop extends AbstractMojo {
     @Parameter( property = "jira.cloudformation.stack.name", defaultValue = "JIRA-Data-Center" )
     private String stackName;
 
-    @Parameter( property = "jira.cloudformation.credentials", defaultValue = "aws.properties" )
-    private String credentialsFilePath;
-
     private Log log;
 
     public void setLog(Log log){
@@ -28,7 +25,7 @@ public class Stop extends AbstractMojo {
     public void execute() throws MojoExecutionException {
         if(skip)return;
 
-        AwsCloudFormation cloudFormationClient = new AwsCloudFormation(log, credentialsFilePath);
+        AwsCloudFormation cloudFormationClient = new AwsCloudFormation(log);
 
         if(!cloudFormationClient.stop(stackName)){
             throw new MojoExecutionException("Failed to stop stack!");

@@ -30,27 +30,27 @@
     <dependency>
       <groupId>com.amazonaws</groupId>
       <artifactId>aws-java-sdk-cloudformation</artifactId>
-      <version>1.11.210</version>
+      <version>1.11.505</version>
     </dependency>
     <dependency>
       <groupId>com.amazonaws</groupId>
       <artifactId>aws-java-sdk-elasticloadbalancing</artifactId>
-      <version>1.11.213</version>
+      <version>1.11.505</version>
     </dependency>
     <dependency>
       <groupId>com.amazonaws</groupId>
       <artifactId>aws-java-sdk-ec2</artifactId>
-      <version>1.11.213</version>
+      <version>1.11.505</version>
     </dependency>
     <dependency>
       <groupId>com.amazonaws</groupId>
       <artifactId>aws-java-sdk-rds</artifactId>
-      <version>1.11.214</version>
+      <version>1.11.505</version>
     </dependency>
     <dependency>
       <groupId>com.amazonaws</groupId>
       <artifactId>aws-java-sdk</artifactId>
-      <version>1.0.12</version>
+      <version>1.11.505</version>
     </dependency>
     <dependency>
       <groupId>com.jcraft</groupId>

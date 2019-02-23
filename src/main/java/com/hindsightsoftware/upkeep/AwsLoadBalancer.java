@@ -2,16 +2,17 @@ package com.hindsightsoftware.upkeep;
 
 import com.amazonaws.AmazonClientException;
 import com.amazonaws.AmazonServiceException;
-import com.amazonaws.auth.*;
-import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.amazonaws.services.ec2.AmazonEC2;
-import com.amazonaws.services.ec2.AmazonEC2Client;
+import com.amazonaws.services.ec2.AmazonEC2ClientBuilder;
 import com.amazonaws.services.ec2.model.DescribeInstanceStatusRequest;
 import com.amazonaws.services.ec2.model.DescribeInstanceStatusResult;
 import com.amazonaws.services.ec2.model.InstanceStatus;
+import com.amazonaws.auth.profile.ProfileCredentialsProvider;
+import com.amazonaws.auth.AWSStaticCredentialsProvider;
 import com.amazonaws.services.elasticloadbalancing.AmazonElasticLoadBalancing;
-import com.amazonaws.services.elasticloadbalancing.AmazonElasticLoadBalancingClient;
+import com.amazonaws.services.elasticloadbalancing.AmazonElasticLoadBalancingClientBuilder;
 import com.amazonaws.services.elasticloadbalancing.model.*;
+
 import org.apache.maven.plugin.logging.Log;
 
 import java.util.List;
@@ -19,19 +20,23 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class AwsLoadBalancer {
-    private final AWSCredentialsProviderChain credentials;
     private final Log log;
     private final AmazonElasticLoadBalancing elb;
+    private final AmazonEC2 ec2;
 
-    public AwsLoadBalancer(Log log, String credentailsFilePath){
+    public AwsLoadBalancer(Log log){
         this.log = log;
-        this.credentials = new AWSCredentialsProviderChain(
-                new PropertiesFileCredentialsProvider(credentailsFilePath),
-                new EnvironmentVariableCredentialsProvider(),
-                new SystemPropertiesCredentialsProvider(),
-                new ProfileCredentialsProvider(),
-                new InstanceProfileCredentialsProvider());
-        this.elb = new AmazonElasticLoadBalancingClient(this.credentials.getCredentials());
+        AmazonElasticLoadBalancingClientBuilder builder = AmazonElasticLoadBalancingClientBuilder.standard();
+        builder.withCredentials(
+                new AWSStaticCredentialsProvider(new ProfileCredentialsProvider("default").getCredentials()));
+        builder.setRegion("us-east-2");
+        this.elb = builder.build();
+        
+        AmazonEC2ClientBuilder builder2 = AmazonEC2ClientBuilder.standard();
+        builder2.withCredentials(
+                new AWSStaticCredentialsProvider(new ProfileCredentialsProvider("default").getCredentials()));
+        builder2.setRegion("us-east-2");
+        this.ec2 = builder2.build();
     }
 
     public Map<String, String> getHealthStatus(String physicalId){
@@ -55,7 +60,7 @@ public class AwsLoadBalancer {
             DescribeLoadBalancersRequest request = new DescribeLoadBalancersRequest().withLoadBalancerNames(physicalId);
             DescribeLoadBalancersResult result = elb.describeLoadBalancers(request);
 
-            if (result.getLoadBalancerDescriptions().size() != 1) {
+            if (result.getLoadBalancerDescriptions().size() == 0) {
                 log.error("Cloud not find JIRA load balancer!");
                 return null;
             }
@@ -109,8 +114,6 @@ public class AwsLoadBalancer {
                 log.error("No instances found for JIRA load balancer!");
                 return false;
             }
-
-            AmazonEC2 ec2 = new AmazonEC2Client(credentials.getCredentials());
 
             // Wait for all instances to start...
             for(Instance instance : loadBalancerInstances) {

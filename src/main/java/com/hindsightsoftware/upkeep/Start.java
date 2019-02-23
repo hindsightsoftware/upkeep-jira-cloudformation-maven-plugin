@@ -23,7 +23,7 @@ public class Start extends AbstractMojo {
     @Parameter
     private boolean skip = false;
 
-    @Parameter( property = "jira.cloudformation.template.url", defaultValue = "" )
+    @Parameter( property = "jira.cloudformation.template.url", defaultValue = "https://aws-quickstart.s3.amazonaws.com/quickstart-atlassian-jira/templates/quickstart-jira-dc.template.yaml" )
     private String templateUrl;
 
     @Parameter(property = "jira.cloudformation.conf.file", defaultValue = "${project.build.testOutputDirectory}/cloudformation.conf")
@@ -93,13 +93,13 @@ public class Start extends AbstractMojo {
     private boolean s3RestoreEnabled;
 
     @Parameter( property = "jira.cloudformation.s3.restore.bucket", defaultValue = "" )
-    private String s3BucketName;
+    private String s3RestoreBucket;
 
     @Parameter( property = "jira.cloudformation.s3.restore.psql", defaultValue = "" )
-    private String s3JiraRestorePsql;
+    private String s3RestorePsqlFileName;
 
     @Parameter( property = "jira.cloudformation.s3.restore.indexes", defaultValue = "" )
-    private String s3JiraRestoreIndexes;
+    private String s3RestoreIndexesFileName;
 
     @Parameter( property = "jira.cloudformation.max.wait.jira", defaultValue = "300")
     private Integer maxJiraHttpWait;
@@ -265,18 +265,18 @@ public class Start extends AbstractMojo {
                 psqlRestored = true;
 
                 // download the psql file
-                if (!JiraRestoreUtils.getPsqlFromBucket(ssh, s3BucketName, s3JiraRestorePsql)) {
+                if (!JiraRestoreUtils.getPsqlFromBucket(ssh, s3RestoreBucket, s3RestorePsqlFileName)) {
                     throw new MojoExecutionException("Failed to get Postgres SQL backup from S3 bucket!");
                 }
 
                 // restore Postgres SQL
-                if (!JiraRestoreUtils.restoreFromPsql(log, ssh, rdsInstanceEndpoint, rdsPassword, s3JiraRestorePsql)) {
+                if (!JiraRestoreUtils.restoreFromPsql(log, ssh, rdsInstanceEndpoint, rdsPassword, s3RestorePsqlFileName)) {
                     throw new MojoExecutionException("Failed restore Postgres SQL backup!");
                 }
             }
 
             // download the indexes file and restore it
-            if (!JiraRestoreUtils.getIndexesFromBucket(ssh, s3BucketName, s3JiraRestoreIndexes)) {
+            if (!JiraRestoreUtils.getIndexesFromBucket(ssh, s3RestoreBucket, s3RestoreIndexesFileName)) {
                 throw new MojoExecutionException("Failed to get indexes backup from S3 bucket!");
             }
 

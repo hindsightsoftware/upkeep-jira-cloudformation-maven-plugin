@@ -23,7 +23,7 @@ public class Start extends AbstractMojo {
     @Parameter
     private boolean skip = false;
 
-    @Parameter( property = "jira.cloudformation.template.url", defaultValue = "https://aws-quickstart.s3.amazonaws.com/quickstart-atlassian-jira/templates/quickstart-jira-dc.template.yaml" )
+    @Parameter( property = "jira.cloudformation.template.url", defaultValue = "https://aws-quickstart.s3.amazonaws.com/quickstart-atlassian-jira/templates/quickstart-jira-dc-with-vpc.template.yaml" )
     private String templateUrl;
 
     @Parameter(property = "jira.cloudformation.conf.file", defaultValue = "${project.build.testOutputDirectory}/cloudformation.conf")

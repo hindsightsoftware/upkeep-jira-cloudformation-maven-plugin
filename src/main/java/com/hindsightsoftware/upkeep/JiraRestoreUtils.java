@@ -79,7 +79,7 @@ public class JiraRestoreUtils {
         }
 
         // Restore data
-        return ssh.execute("PGPASSWORD=\'" + password + "\' pg_restore -j 4 -v -n public -i -h " + endpoint + " -p 5432 -U postgres -d jira \"" + psqlFileName + "\"") == 0;
+        return ssh.execute("PGPASSWORD=\'" + password + "\' pg_restore -j 4 -v -n public -h " + endpoint + " -p 5432 -U postgres -d jira \"" + psqlFileName + "\"") == 0;
     }
 
     public static boolean getIndexesFromBucket(SecuredShellClient ssh, String bucketName, String indexesFileName){

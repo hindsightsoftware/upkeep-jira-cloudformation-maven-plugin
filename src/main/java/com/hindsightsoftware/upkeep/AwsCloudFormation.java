@@ -97,7 +97,7 @@ public class AwsCloudFormation {
             log.info("Stack creation completed, the stack " + stackName + " completed with " + waitForCompletion(cf, stackName));
 
             // Show all the stacks for this account along with the resources for each stack
-            Stack stack = cf.describeStacks(new DescribeStacksRequest()).getStacks().get(0);
+            Stack stack = cf.describeStacks(new DescribeStacksRequest().withStackName(stackName)).getStacks().get(0);
             if(stack != null) {
                 log.info("Stack : " + stack.getStackName() + " [" + stack.getStackStatus().toString() + "]");
 
@@ -161,6 +161,32 @@ public class AwsCloudFormation {
         }
 
         return true;
+    }
+
+    public String getOutputValue(String stackName, String key) {
+        DescribeStacksRequest describeStackRequest = new DescribeStacksRequest();
+        describeStackRequest.setStackName(stackName);
+
+        Stack stack = cf.describeStacks(describeStackRequest).getStacks().get(0);
+        if(stack != null) {
+            Optional<Output> value = stack.getOutputs().stream().filter(o -> o.getOutputKey().equals(key)).findFirst();
+            if (!value.isPresent()) throw new RuntimeException("Unable to find output: " + key + " in stack: " + stackName);
+            return value.get().getOutputValue();
+        }
+        throw new RuntimeException("Failed to get stack outputs by name: " + stackName);
+    }
+
+    public String getResourceValue(String stackName, String key) {
+        DescribeStackResourcesRequest stackResourceRequest = new DescribeStackResourcesRequest();
+        stackResourceRequest.setStackName(stackName);
+
+        DescribeStackResourcesResult result = cf.describeStackResources(stackResourceRequest);
+        if (result != null) {
+            Optional<StackResource> value = result.getStackResources().stream().filter(r -> r.getLogicalResourceId().equals(key)).findFirst();
+            if (!value.isPresent()) throw new RuntimeException("Unable to find resource: " + key + " in stack: " + stackName);
+            return value.get().getPhysicalResourceId();
+        }
+        throw new RuntimeException("Failed to get stack resources by name: " + stackName);
     }
 
     // Wait for a stack to complete transitioning

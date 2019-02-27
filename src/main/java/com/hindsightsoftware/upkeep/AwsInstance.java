@@ -23,7 +23,7 @@ public class AwsInstance {
         this.ec2 = builder.build();
     }
 
-    public String getDns(String physicalId){
+    public String getPrivateIp(String physicalId){
         try {
             DescribeInstancesRequest request = new DescribeInstancesRequest().withInstanceIds(physicalId);
             DescribeInstancesResult result = ec2.describeInstances(request);
@@ -35,7 +35,7 @@ public class AwsInstance {
                 log.error("No instances found for physical ID: " + physicalId);
                 return null;
             }
-            return result.getReservations().get(0).getInstances().get(0).getPublicDnsName();
+            return result.getReservations().get(0).getInstances().get(0).getPrivateIpAddress();
         } catch (AmazonServiceException ase){
             AwsUtils.printAmazonServiceException(log, ase);
             return null;

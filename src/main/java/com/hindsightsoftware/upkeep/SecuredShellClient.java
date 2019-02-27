@@ -2,7 +2,7 @@ package com.hindsightsoftware.upkeep;
 
 import java.io.*;
 import java.util.List;
-
+import java.util.function.IntSupplier;
 
 import com.jcraft.jsch.*;
 import org.apache.maven.plugin.logging.Log;
@@ -22,26 +22,81 @@ public class SecuredShellClient {
     private final String host;
     private final String user;
     private final int port = 22;
+    private final String bastion;
 
-    public SecuredShellClient(Log log, String host, String user, File keypairFilePath) throws JSchException {
+    public SecuredShellClient(Log log, String bastionIp, String host, String user, File keypairFilePath) throws JSchException {
         this.log = log;
         this.jsch = new JSch();
         this.host = host;
         this.user = user;
         this.jsch.addIdentity(keypairFilePath.getAbsolutePath());
+        this.bastion = bastionIp;
+    }
+
+    public int execute(List<String> commands){
+        for(String command : commands){
+            int ret = execute(command);
+            if(ret != 0)return ret;
+        }
+        return 0;
     }
 
     public boolean uploadFile(List<FilePair> files) {
+        try {
+            Session session = jsch.getSession(user, bastion, port);
+            java.util.Properties config = new java.util.Properties();
+            config.put("StrictHostKeyChecking", "no");
+            session.setConfig(config);
+            session.connect();
+
+            // Forward the port
+            session.setPortForwardingL(2222, host, 22);
+
+            boolean ret = uploadFileForwarded(files);
+            session.disconnect();
+            return ret;
+
+        } catch (JSchException e) {
+            log.error("Error while connecting: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public int execute(String command){
+        try {
+            Session session = jsch.getSession(user, bastion, port);
+            java.util.Properties config = new java.util.Properties();
+            config.put("StrictHostKeyChecking", "no");
+            session.setConfig(config);
+            session.connect();
+
+            // Forward the port
+            System.out.println("Connected host A!");
+            session.setPortForwardingL(2222, host, 22);
+
+            int ret = executeForwarded(command);
+            session.disconnect();
+            return ret;
+
+        } catch (JSchException e){
+            log.error("Error while connecting: " + e.getMessage());
+            e.printStackTrace();
+            return -1;
+        }
+    }
+
+    private boolean uploadFileForwarded(List<FilePair> files) {
         log.info("Uploading: " + files.size() + " files...");
         try {
-            Session session = jsch.getSession(user, host, port);
+            Session session = jsch.getSession(user, "localhost", 2222);
             java.util.Properties config = new java.util.Properties();
             config.put("StrictHostKeyChecking", "no");
             session.setConfig(config);
             session.connect();
 
             try {
-                for(FilePair pair : files){
+                for (FilePair pair : files) {
                     log.info("Uploading: " + pair.src + " -> " + pair.dst);
                     Channel channel = session.openChannel("sftp");
                     channel.connect();
@@ -58,32 +113,24 @@ public class SecuredShellClient {
             }
 
             return true;
-        } catch (FileNotFoundException e){
+        } catch (FileNotFoundException e) {
             log.error("Error reading source file: " + e.getMessage());
             e.printStackTrace();
             return false;
-        } catch (SftpException e){
+        } catch (SftpException e) {
             log.error("Error while uploading files: " + e.getMessage());
             e.printStackTrace();
             return false;
-        } catch (JSchException e){
+        } catch (JSchException e) {
             log.error("Error while connecting: " + e.getMessage());
             e.printStackTrace();
             return false;
         }
     }
 
-    public int execute(List<String> commands){
-        for(String command : commands){
-            int ret = execute(command);
-            if(ret != 0)return ret;
-        }
-        return 0;
-    }
-
-    public int execute(String command){
+    private int executeForwarded(String command) {
         try {
-            Session session = jsch.getSession(user, host, port);
+            Session session = jsch.getSession(user, "localhost", 2222);
             java.util.Properties config = new java.util.Properties();
             config.put("StrictHostKeyChecking", "no");
             session.setConfig(config);

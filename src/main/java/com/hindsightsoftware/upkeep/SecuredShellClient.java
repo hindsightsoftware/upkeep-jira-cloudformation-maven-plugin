@@ -72,7 +72,6 @@ public class SecuredShellClient {
             session.connect();
 
             // Forward the port
-            System.out.println("Connected host A!");
             session.setPortForwardingL(2222, host, 22);
 
             int ret = executeForwarded(command);

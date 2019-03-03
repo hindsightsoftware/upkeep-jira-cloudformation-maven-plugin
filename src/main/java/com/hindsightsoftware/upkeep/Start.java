@@ -242,16 +242,6 @@ public class Start extends AbstractMojo {
                 }
             }
         }
-
-        // Wait for all JIRAs to be active
-        for(String address : ec2PrivateIpAddresses) {
-            // Open ssh connection
-            SecuredShellClient ssh = getSsh(bastionIp, address);
-            log.info("Waiting for JIRA instance: " + address);
-            if (!JiraRestoreUtils.waitForJiraToBeAlive(ssh, log, "http://" + address + ":8080/", maxJiraHttpWait)) {
-                throw new MojoExecutionException("Timeout reached!");
-            }
-        }
     }
 
     private SecuredShellClient getSsh(String bastionIp, String host) throws MojoExecutionException{

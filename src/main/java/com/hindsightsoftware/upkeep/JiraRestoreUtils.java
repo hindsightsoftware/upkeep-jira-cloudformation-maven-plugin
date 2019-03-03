@@ -117,15 +117,14 @@ public class JiraRestoreUtils {
         return false;
     }
 
-    public static boolean waitForJiraToBeAlive(SecuredShellClient ssh, Log log, String baseUrl, int maxWaitTime){
+    public static boolean waitForJiraToBeAlive(SecuredShellClient ssh, Log log, int maxWaitTime){
         return new TimeoutBlock(maxWaitTime, 10000) {@Override public boolean block(){
             return ssh.execute("curl -sS --fail --connect-timeout 5 --max-time 5 -o /dev/null localhost:8080") == 0;
         }}.run();
     }
 
-    public static boolean waitForUrlToBeAlive(Log log, String baseUrl, int maxWaitTime){
+    public static boolean waitForUrlToBeAlive(Log log, String host, int maxWaitTime){
         return new TimeoutBlock(maxWaitTime, 10000) {@Override public boolean block() {
-            String host = "http://" + baseUrl + "/";
             try {
                 Http.Response response = Http.GET(host).timeout(5).send();
                 log.info("GET \"" + host + "\" returned " + response.getStatusCode());
